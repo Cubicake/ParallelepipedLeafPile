@@ -38,7 +38,7 @@ tasks.named<Test>("test") {
 
 indra {
     javaVersions {
-        target(25)
+        target(21)
     }
     publishSnapshotsTo("paperSnapshots", "https://repo.papermc.io/repository/maven-snapshots/")
     publishReleasesTo("paperReleases", "https://repo.papermc.io/repository/maven-releases/")
