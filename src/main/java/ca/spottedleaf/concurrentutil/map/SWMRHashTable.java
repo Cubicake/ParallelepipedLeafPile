@@ -318,6 +318,14 @@ public class SWMRHashTable<K, V> implements Map<K, V>, Iterable<Map.Entry<K, V>>
         return new EntryIterator<>(this.getTableAcquire(), this);
     }
 
+    @FunctionalInterface
+    public interface CountingConsumer<V> {
+        /**
+         * @return true to increment the count by 1, false to not increment the count
+         */
+        boolean accept(V value);
+    }
+
     /**
      * {@inheritDoc}
      */
@@ -380,6 +388,25 @@ public class SWMRHashTable<K, V> implements Map<K, V>, Iterable<Map.Entry<K, V>>
                 action.accept(value);
             }
         }
+    }
+
+    /**
+     * Provides the specified consumer with all values contained within this map. Equivalent to {@code map.values().forEach(Consumer)}.
+     * @param action The specified consumer.
+     */
+    public int forEachValueCounted(final CountingConsumer<? super V> action) {
+        Objects.requireNonNull(action, "Null action");
+
+        final TableEntry<K, V>[] table = this.getTableAcquire();
+        int count = 0;
+        for (int i = 0, len = table.length; i < len; ++i) {
+            for (TableEntry<K, V> curr = getAtIndexOpaque(table, i); curr != null; curr = curr.getNextOpaque()) {
+                final V value = curr.getValueAcquire();
+
+                if (action.accept(value)) count++;
+            }
+        }
+        return count;
     }
 
     /**
