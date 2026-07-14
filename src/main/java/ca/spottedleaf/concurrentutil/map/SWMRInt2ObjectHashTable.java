@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
+import java.util.function.ToIntFunction;
 
 // trimmed down version of SWMRHashTable
 public class SWMRInt2ObjectHashTable<V> {
@@ -347,6 +348,19 @@ public class SWMRInt2ObjectHashTable<V> {
                 action.accept(value);
             }
         }
+    }
+
+    /** Applies {@code action} to every value and returns the sum of its arbitrary per-value contributions. */
+    public int forEachValueSummed(final ToIntFunction<? super V> action) {
+        Objects.requireNonNull(action, "Null action");
+        int sum = 0;
+        final TableEntry<V>[] table = this.getTableAcquire();
+        for (int i = 0, len = table.length; i < len; ++i) {
+            for (TableEntry<V> curr = getAtIndexOpaque(table, i); curr != null; curr = curr.getNextOpaque()) {
+                sum += action.applyAsInt(curr.getValueAcquire());
+            }
+        }
+        return sum;
     }
 
     /**
