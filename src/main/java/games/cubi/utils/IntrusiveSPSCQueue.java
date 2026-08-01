@@ -13,8 +13,7 @@ import java.util.Objects;
  * the producer to the consumer through a release/acquire pair on the intrusive forward link.</p>
  *
  * <p>Nodes are single-use and must not be offered to this or any other queue more than once. The most recently consumed
- * node becomes the queue's empty sentinel, so consumers should clear payload references after processing when retaining
- * them would be undesirable.</p>
+ * node becomes the queue's empty sentinel and remains referenced until another node is consumed.</p>
  *
  * @param <N> node type stored by this queue
  */
@@ -60,6 +59,10 @@ public final class IntrusiveSPSCQueue<N extends IntrusiveSPSCQueue.Node> {
         return (N) next;
     }
 
+    public void clear() {
+        consumerHead = producerTail;
+    }
+
     /** Returns whether the consumer currently observes no published node. */
     public boolean isEmpty() {
         return consumerHead.nextAcquire() == null;
@@ -67,13 +70,15 @@ public final class IntrusiveSPSCQueue<N extends IntrusiveSPSCQueue.Node> {
 
     /** Base class for objects that are their own intrusive queue node. */
     public static class Node {
-        private volatile Node next; private static final VarHandle NEXT = ConcurrentUtil.getVarHandle(Node.class, "next", Node.class);
+        private volatile Node next;
+
+        private static final VarHandle NEXT = ConcurrentUtil.getVarHandle(Node.class, "next", Node.class);
 
         protected Node() {
         }
 
         private Node nextPlain() {
-            return next;
+            return (Node) NEXT.get(this);
         }
 
         private Node nextAcquire() {
