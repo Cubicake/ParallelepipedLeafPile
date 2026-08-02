@@ -1,0 +1,74 @@
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright © 2026 Cubicake.
+ * This file is part of RaycastedAntiESP.
+ * RaycastedAntiESP is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License v3.0 only, which can be accessed at https://www.gnu.org/licenses/agpl-3.0.html.
+ * See README.md for warranty disclaimer and further information.
+ */
+
+package games.cubi.utils.sets;
+
+import ca.spottedleaf.concurrentutil.util.ConcurrentUtil;
+
+import java.lang.invoke.VarHandle;
+import java.util.Arrays;
+import java.util.function.IntConsumer;
+
+/**
+ * A thread-safe copy-on-write int set where values are stored in ascending order.
+ * Designed for highly concurrent reads and rare writes.
+ */
+public class SortedMTIntSet implements CopyOnWriteMTIntSet {
+    private volatile int[] values = new int[0]; private static final VarHandle VALUES = ConcurrentUtil.getVarHandle(SortedMTIntSet.class, "values", int[].class);
+    private final Object writerLock = new Object();
+
+    @Override
+    public boolean contains(int value) {
+        int[] valueSnapshot = (int[]) VALUES.getAcquire(this);
+        return Arrays.binarySearch(valueSnapshot, value) >= 0;
+    }
+
+    @Override
+    public void forEach(IntConsumer consumer) {
+        int[] valueSnapshot = (int[]) VALUES.getAcquire(this);
+        for (int value : valueSnapshot) {
+            consumer.accept(value);
+        }
+    }
+
+    @Override
+    public void add(int value) {
+        synchronized (writerLock) {
+            int[] oldValues = (int[]) VALUES.getAcquire(this);
+            int result = Arrays.binarySearch(oldValues, value);
+
+            if (result >= 0) return; //already in array
+            int[] newValues = new int[oldValues.length + 1];
+            int insertionPoint = -result - 1;
+
+            System.arraycopy(oldValues, 0, newValues, 0, insertionPoint);
+            newValues[insertionPoint] = value;
+            // If the new value is larger than the old values, this will do nothing
+            System.arraycopy(oldValues, insertionPoint, newValues, insertionPoint + 1, oldValues.length - insertionPoint);
+
+            VALUES.setRelease(this, oldValues, newValues);
+        }
+    }
+
+    @Override
+    public boolean remove(int value) {
+        synchronized (writerLock) {
+            int[] oldValues = (int[]) VALUES.getAcquire(this);
+            int result = Arrays.binarySearch(oldValues, value);
+
+            if (result < 0) return false; //not in array
+            int[] newValues = new int[oldValues.length - 1];
+
+            System.arraycopy(oldValues, 0, newValues, 0, result);
+            System.arraycopy(oldValues, result + 1, newValues, result, oldValues.length - result - 1);
+
+            VALUES.setRelease(this, oldValues, newValues);
+            return true;
+        }
+    }
+}
