@@ -51,7 +51,7 @@ public class SortedMTIntSet implements CopyOnWriteMTIntSet {
             // If the new value is larger than the old values, this will do nothing
             System.arraycopy(oldValues, insertionPoint, newValues, insertionPoint + 1, oldValues.length - insertionPoint);
 
-            VALUES.setRelease(this, oldValues, newValues);
+            VALUES.setRelease(this, newValues);
         }
     }
 
@@ -67,7 +67,7 @@ public class SortedMTIntSet implements CopyOnWriteMTIntSet {
             System.arraycopy(oldValues, 0, newValues, 0, result);
             System.arraycopy(oldValues, result + 1, newValues, result, oldValues.length - result - 1);
 
-            VALUES.setRelease(this, oldValues, newValues);
+            VALUES.setRelease(this, newValues);
             return true;
         }
     }
