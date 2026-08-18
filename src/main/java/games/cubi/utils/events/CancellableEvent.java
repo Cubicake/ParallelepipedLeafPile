@@ -15,8 +15,8 @@ public abstract class CancellableEvent {
         cancelled = true;
     }
 
-    public void unCancel() {
-        cancelled = false;
+    public void setCancelled(boolean value) {
+        cancelled = value;
     }
 
     public boolean isCancelled() {

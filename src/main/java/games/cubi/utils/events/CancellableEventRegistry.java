@@ -36,17 +36,22 @@ public final class CancellableEventRegistry<E extends CancellableEvent> {
         for (BaseEventHandler<E> eventHandler : handlers.lateEventHandlers) {
             eventHandler.handle(event);
         }
-        boolean result = !event.isCancelled();
+        boolean cancelled = event.isCancelled();
         for (BaseEventHandler<E> eventHandler : handlers.monitoringEventHandlers) {
             eventHandler.handle(event);
+            event.setCancelled(cancelled);
         }
-        return result;
+        return !cancelled;
     }
 
     public enum Order {
         EARLY,
         NORMAL,
         LATE,
+        /**
+         * Monitor handlers are explicitly forbidden from mutating.
+         * Attempting to cancel or uncancel the event here will be undone.
+         */
         MONITOR,
     }
 
@@ -65,11 +70,32 @@ public final class CancellableEventRegistry<E extends CancellableEvent> {
         registerUnconditional(order, handler);
     }
 
+    public synchronized void unregister(Order order, BaseEventHandler<E> handler) {
+        Handlers<E> handlers = (Handlers<E>) HANDLERS.get(this);
+        switch (order) {
+            case EARLY -> HANDLERS.setRelease(this, new Handlers<>(remove(handlers.earlyEventHandlers, handler), handlers.normalEventHandlers, handlers.lateEventHandlers, handlers.monitoringEventHandlers));
+            case NORMAL -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, remove(handlers.normalEventHandlers, handler), handlers.lateEventHandlers, handlers.monitoringEventHandlers));
+            case LATE -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, handlers.normalEventHandlers, remove(handlers.lateEventHandlers, handler), handlers.monitoringEventHandlers));
+            case MONITOR -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, handlers.normalEventHandlers, handlers.lateEventHandlers, remove(handlers.monitoringEventHandlers, handler)));
+        }
+    }
+
     private BaseEventHandler<E>[] append(BaseEventHandler<E>[] handlers, BaseEventHandler<E> handler) {
         BaseEventHandler<E>[] copy = Arrays.copyOf(handlers, handlers.length + 1);
 
         copy[handlers.length] = handler;
         return copy;
+    }
+
+    private BaseEventHandler<E>[] remove(BaseEventHandler<E>[] handlers, BaseEventHandler<E> handler) {
+        for (int i = 0; i < handlers.length; i++) {
+            if (handlers[i] == handler) {
+                BaseEventHandler<E>[] result = Arrays.copyOf(handlers, handlers.length - 1);
+                System.arraycopy(handlers, i + 1, result, i, handlers.length - i - 1);
+                return result;
+            }
+        }
+        return handlers;
     }
 
     @FunctionalInterface
