@@ -14,9 +14,9 @@ import java.lang.invoke.VarHandle;
 import java.util.Arrays;
 
 public final class CancellableEventRegistry<E extends CancellableEvent> {
-    private record Handlers<E extends CancellableEvent>(BaseEventHandler<E>[] earlyEventHandlers, BaseEventHandler<E>[] normalEventHandlers, BaseEventHandler<E>[] lateEventHandlers) {}
+    private record Handlers<E extends CancellableEvent>(BaseEventHandler<E>[] earlyEventHandlers, BaseEventHandler<E>[] normalEventHandlers, BaseEventHandler<E>[] lateEventHandlers, BaseEventHandler<E>[] monitoringEventHandlers) {}
 
-    private volatile Handlers<E> handlersStore = new Handlers<>(emptyHandlers(), emptyHandlers(), emptyHandlers());
+    private volatile Handlers<E> handlersStore = new Handlers<>(emptyHandlers(), emptyHandlers(), emptyHandlers(), emptyHandlers());
     private static final VarHandle HANDLERS = ConcurrentUtil.getVarHandle(CancellableEventRegistry.class, "handlersStore", Handlers.class);
 
     @SuppressWarnings("unchecked")
@@ -36,22 +36,28 @@ public final class CancellableEventRegistry<E extends CancellableEvent> {
         for (BaseEventHandler<E> eventHandler : handlers.lateEventHandlers) {
             eventHandler.handle(event);
         }
-        return !event.isCancelled();
+        boolean result = !event.isCancelled();
+        for (BaseEventHandler<E> eventHandler : handlers.monitoringEventHandlers) {
+            eventHandler.handle(event);
+        }
+        return result;
     }
 
     public enum Order {
         EARLY,
         NORMAL,
         LATE,
+        MONITOR,
     }
 
     @SuppressWarnings("unchecked")
     public synchronized void registerUnconditional(Order order, BaseEventHandler<E> handler) {
         Handlers<E> handlers = (Handlers<E>) HANDLERS.get(this); //ordered by the synchronisation on this object
         switch (order) {
-            case EARLY -> HANDLERS.setRelease(this, new Handlers<>(append(handlers.earlyEventHandlers, handler), handlers.normalEventHandlers, handlers.lateEventHandlers));
-            case NORMAL -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, append(handlers.normalEventHandlers, handler), handlers.lateEventHandlers));
-            case LATE -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, handlers.normalEventHandlers, append(handlers.lateEventHandlers, handler)));
+            case EARLY -> HANDLERS.setRelease(this, new Handlers<>(append(handlers.earlyEventHandlers, handler), handlers.normalEventHandlers, handlers.lateEventHandlers, handlers.monitoringEventHandlers));
+            case NORMAL -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, append(handlers.normalEventHandlers, handler), handlers.lateEventHandlers, handlers.monitoringEventHandlers));
+            case LATE -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, handlers.normalEventHandlers, append(handlers.lateEventHandlers, handler), handlers.monitoringEventHandlers));
+            case MONITOR -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, handlers.normalEventHandlers, handlers.lateEventHandlers, append(handlers.monitoringEventHandlers, handler)));
         }
     }
 
