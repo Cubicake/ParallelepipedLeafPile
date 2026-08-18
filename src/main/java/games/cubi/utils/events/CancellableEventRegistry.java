@@ -13,13 +13,11 @@ import ca.spottedleaf.concurrentutil.util.ConcurrentUtil;
 import java.lang.invoke.VarHandle;
 import java.util.Arrays;
 
-public abstract class CancellableEventRegistry<E extends CancellableEvent> {
+public final class CancellableEventRegistry<E extends CancellableEvent> {
     private record Handlers<E extends CancellableEvent>(BaseEventHandler<E>[] earlyEventHandlers, BaseEventHandler<E>[] normalEventHandlers, BaseEventHandler<E>[] lateEventHandlers) {}
 
     private volatile Handlers<E> handlersStore = new Handlers<>(emptyHandlers(), emptyHandlers(), emptyHandlers());
     private static final VarHandle HANDLERS = ConcurrentUtil.getVarHandle(CancellableEventRegistry.class, "handlersStore", Handlers.class);
-
-    protected abstract E newEvent();
 
     @SuppressWarnings("unchecked")
     private static <E extends CancellableEvent> BaseEventHandler<E>[] emptyHandlers() {
@@ -27,8 +25,7 @@ public abstract class CancellableEventRegistry<E extends CancellableEvent> {
     }
 
     @SuppressWarnings("unchecked")
-    public boolean call() {
-        E event = newEvent();
+    public boolean dispatch(E event) {
         Handlers<E> handlers = (Handlers<E>) HANDLERS.getAcquire(this);
         for (BaseEventHandler<E> eventHandler : handlers.earlyEventHandlers) {
             eventHandler.handle(event);
@@ -49,7 +46,7 @@ public abstract class CancellableEventRegistry<E extends CancellableEvent> {
     }
 
     @SuppressWarnings("unchecked")
-    public synchronized void registerUnconditional(BaseEventHandler<E> handler, Order order) {
+    public synchronized void registerUnconditional(Order order, BaseEventHandler<E> handler) {
         Handlers<E> handlers = (Handlers<E>) HANDLERS.get(this); //ordered by the synchronisation on this object
         switch (order) {
             case EARLY -> HANDLERS.setRelease(this, new Handlers<>(append(handlers.earlyEventHandlers, handler), handlers.normalEventHandlers, handlers.lateEventHandlers));
@@ -58,8 +55,8 @@ public abstract class CancellableEventRegistry<E extends CancellableEvent> {
         }
     }
 
-    public synchronized void register(CancellableEventHandler<E> handler, Order order) {
-        registerUnconditional(handler, order);
+    public synchronized void register(Order order, CancellableEventHandler<E> handler) {
+        registerUnconditional(order, handler);
     }
 
     private BaseEventHandler<E>[] append(BaseEventHandler<E>[] handlers, BaseEventHandler<E> handler) {
