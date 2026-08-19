@@ -14,11 +14,30 @@ import java.lang.reflect.Method;
 /**
  * A namespaced key where the namespace is a class.
  */
-public record CubiKey(Class<?> namespace, String key) {
+public final class CubiKey {
+    public final Class<?> namespace;
+    public final String key;
+
+    CubiKey(Class<?> namespace, String key) {
+        this.namespace = namespace;
+        this.key = key;
+    }
+
     public boolean equals(String fullyQualifiedNamespace, String key) {
         if (!this.key.equals(key)) return false;
 
         return namespace.getCanonicalName().equals(fullyQualifiedNamespace);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (!(other instanceof CubiKey otherKey)) return false;
+        return (namespace == otherKey.namespace && key.equals(otherKey.key));
+    }
+
+    @Override
+    public int hashCode() {
+        return ( 31 * namespace.hashCode() ) + key.hashCode();
     }
 
     static CubiKey from(Class<?> namespace, String key) {
