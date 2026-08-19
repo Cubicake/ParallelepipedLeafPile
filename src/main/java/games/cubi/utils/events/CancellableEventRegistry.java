@@ -12,36 +12,60 @@ import ca.spottedleaf.concurrentutil.util.ConcurrentUtil;
 
 import java.lang.invoke.VarHandle;
 import java.util.Arrays;
+import java.util.function.Supplier;
 
 public final class CancellableEventRegistry<E extends CancellableEvent> {
-    private record Handlers<E extends CancellableEvent>(BaseEventHandler<E>[] earlyEventHandlers, BaseEventHandler<E>[] normalEventHandlers, BaseEventHandler<E>[] lateEventHandlers, BaseEventHandler<E>[] monitoringEventHandlers) {}
+    private record Handlers<E extends CancellableEvent>(BaseEventHandler<E>[] eventHandlers, int earlyEnd, int normalEnd, int lateEnd) {}
 
-    private volatile Handlers<E> handlersStore = new Handlers<>(emptyHandlers(), emptyHandlers(), emptyHandlers(), emptyHandlers());
+    private static final BaseEventHandler<?>[] EMPTY_HANDLERS = new BaseEventHandler<?>[0];
+
+    private volatile Handlers<E> handlersStore = new Handlers<>(emptyHandlers(), 0, 0, 0);
     private static final VarHandle HANDLERS = ConcurrentUtil.getVarHandle(CancellableEventRegistry.class, "handlersStore", Handlers.class);
 
     @SuppressWarnings("unchecked")
     private static <E extends CancellableEvent> BaseEventHandler<E>[] emptyHandlers() {
-        return (BaseEventHandler<E>[]) new BaseEventHandler<?>[0];
+        return (BaseEventHandler<E>[]) EMPTY_HANDLERS;
+    }
+
+    /**
+     * For use when allocating an event can be avoided
+     * @return false if the event was cancelled
+     */
+    @SuppressWarnings("unchecked")
+    public boolean dispatch(Supplier<E> eventSupplier) {
+        Handlers<E> handlers = (Handlers<E>) HANDLERS.getAcquire(this);
+        if (handlers.eventHandlers.length == 0) {
+            return true;
+        }
+        return dispatchToHandlers(eventSupplier.get(), handlers);
     }
 
     @SuppressWarnings("unchecked")
     public boolean dispatch(E event) {
         Handlers<E> handlers = (Handlers<E>) HANDLERS.getAcquire(this);
-        for (BaseEventHandler<E> eventHandler : handlers.earlyEventHandlers) {
-            eventHandler.handle(event);
+        if (handlers.eventHandlers.length == 0) {
+            return !event.isCancelled(); //in case an event is pre-cancelled for some reason
         }
-        for (BaseEventHandler<E> eventHandler : handlers.normalEventHandlers) {
-            eventHandler.handle(event);
-        }
-        for (BaseEventHandler<E> eventHandler : handlers.lateEventHandlers) {
-            eventHandler.handle(event);
+        return dispatchToHandlers(event, handlers);
+    }
+
+    private boolean dispatchToHandlers(E event, Handlers<E> handlers) {
+        BaseEventHandler<E>[] eventHandlers = handlers.eventHandlers;
+        for (int i = 0; i < handlers.lateEnd; i++) { //early and normal are before late so this hits them first
+            eventHandlers[i].handle(event);
         }
         boolean cancelled = event.isCancelled();
-        for (BaseEventHandler<E> eventHandler : handlers.monitoringEventHandlers) {
-            eventHandler.handle(event);
+        for (int i = handlers.lateEnd; i < eventHandlers.length; i++) {
+            eventHandlers[i].handle(event);
             event.setCancelled(cancelled);
         }
         return !cancelled;
+    }
+
+    @SuppressWarnings("unchecked")
+    public boolean isEmpty() {
+        Handlers<E> handlers = (Handlers<E>) HANDLERS.getAcquire(this);
+        return handlers.eventHandlers.length == 0;
     }
 
     public enum Order {
@@ -58,44 +82,114 @@ public final class CancellableEventRegistry<E extends CancellableEvent> {
     @SuppressWarnings("unchecked")
     public synchronized void registerUnconditional(Order order, BaseEventHandler<E> handler) {
         Handlers<E> handlers = (Handlers<E>) HANDLERS.get(this); //ordered by the synchronisation on this object
+        int insertionIndex;
+        int earlyEnd = handlers.earlyEnd;
+        int normalEnd = handlers.normalEnd;
+        int lateEnd = handlers.lateEnd;
+
         switch (order) {
-            case EARLY -> HANDLERS.setRelease(this, new Handlers<>(append(handlers.earlyEventHandlers, handler), handlers.normalEventHandlers, handlers.lateEventHandlers, handlers.monitoringEventHandlers));
-            case NORMAL -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, append(handlers.normalEventHandlers, handler), handlers.lateEventHandlers, handlers.monitoringEventHandlers));
-            case LATE -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, handlers.normalEventHandlers, append(handlers.lateEventHandlers, handler), handlers.monitoringEventHandlers));
-            case MONITOR -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, handlers.normalEventHandlers, handlers.lateEventHandlers, append(handlers.monitoringEventHandlers, handler)));
+            case EARLY -> {
+                insertionIndex = earlyEnd;
+                earlyEnd++;
+                normalEnd++;
+                lateEnd++;
+            }
+            case NORMAL -> {
+                insertionIndex = normalEnd;
+                normalEnd++;
+                lateEnd++;
+            }
+            case LATE -> {
+                insertionIndex = lateEnd;
+                lateEnd++;
+            }
+            case MONITOR -> insertionIndex = handlers.eventHandlers.length;
+            default -> throw new AssertionError(order);
         }
+
+        BaseEventHandler<E>[] updatedHandlers = insert(handlers.eventHandlers, insertionIndex, handler);
+        HANDLERS.setRelease(this, new Handlers<>(updatedHandlers, earlyEnd, normalEnd, lateEnd));
     }
 
-    public synchronized void register(Order order, CancellableEventHandler<E> handler) {
+    public void register(Order order, CancellableEventHandler<E> handler) {
         registerUnconditional(order, handler);
     }
 
+    @SuppressWarnings("unchecked")
     public synchronized void unregister(Order order, BaseEventHandler<E> handler) {
-        Handlers<E> handlers = (Handlers<E>) HANDLERS.get(this);
+        Handlers<E> handlers = (Handlers<E>) HANDLERS.get(this); //ordered by the synchronisation, plain reads fine
+        int fromIndex;
+        int toIndex;
+
         switch (order) {
-            case EARLY -> HANDLERS.setRelease(this, new Handlers<>(remove(handlers.earlyEventHandlers, handler), handlers.normalEventHandlers, handlers.lateEventHandlers, handlers.monitoringEventHandlers));
-            case NORMAL -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, remove(handlers.normalEventHandlers, handler), handlers.lateEventHandlers, handlers.monitoringEventHandlers));
-            case LATE -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, handlers.normalEventHandlers, remove(handlers.lateEventHandlers, handler), handlers.monitoringEventHandlers));
-            case MONITOR -> HANDLERS.setRelease(this, new Handlers<>(handlers.earlyEventHandlers, handlers.normalEventHandlers, handlers.lateEventHandlers, remove(handlers.monitoringEventHandlers, handler)));
+            case EARLY -> {
+                fromIndex = 0;
+                toIndex = handlers.earlyEnd;
+            }
+            case NORMAL -> {
+                fromIndex = handlers.earlyEnd;
+                toIndex = handlers.normalEnd;
+            }
+            case LATE -> {
+                fromIndex = handlers.normalEnd;
+                toIndex = handlers.lateEnd;
+            }
+            case MONITOR -> {
+                fromIndex = handlers.lateEnd;
+                toIndex = handlers.eventHandlers.length;
+            }
+            default -> throw new AssertionError(order);
         }
+
+        int handlerIndex = identityIndexOf(handlers.eventHandlers, handler, fromIndex, toIndex);
+        if (handlerIndex < 0) {
+            return;
+        }
+
+        int earlyEnd = handlers.earlyEnd;
+        int normalEnd = handlers.normalEnd;
+        int lateEnd = handlers.lateEnd;
+        switch (order) {
+            case EARLY -> {
+                earlyEnd--;
+                normalEnd--;
+                lateEnd--;
+            }
+            case NORMAL -> {
+                normalEnd--;
+                lateEnd--;
+            }
+            case LATE -> lateEnd--;
+            case MONITOR -> { }
+        }
+
+        BaseEventHandler<E>[] updatedHandlers = remove(handlers.eventHandlers, handlerIndex);
+        HANDLERS.setRelease(this, new Handlers<>(updatedHandlers, earlyEnd, normalEnd, lateEnd));
     }
 
-    private BaseEventHandler<E>[] append(BaseEventHandler<E>[] handlers, BaseEventHandler<E> handler) {
-        BaseEventHandler<E>[] copy = Arrays.copyOf(handlers, handlers.length + 1);
-
-        copy[handlers.length] = handler;
-        return copy;
+    private static <E extends CancellableEvent> BaseEventHandler<E>[] insert(BaseEventHandler<E>[] handlers, int index, BaseEventHandler<E> handler) {
+        BaseEventHandler<E>[] result = Arrays.copyOf(handlers, handlers.length + 1);
+        System.arraycopy(handlers, index, result, index + 1, handlers.length - index);
+        result[index] = handler;
+        return result;
     }
 
-    private BaseEventHandler<E>[] remove(BaseEventHandler<E>[] handlers, BaseEventHandler<E> handler) {
-        for (int i = 0; i < handlers.length; i++) {
+    private static <E extends CancellableEvent> BaseEventHandler<E>[] remove(BaseEventHandler<E>[] handlers, int index) {
+        if (handlers.length == 1) {
+            return emptyHandlers();
+        }
+        BaseEventHandler<E>[] result = Arrays.copyOf(handlers, handlers.length - 1);
+        System.arraycopy(handlers, index + 1, result, index, handlers.length - index - 1);
+        return result;
+    }
+
+    private static <E extends CancellableEvent> int identityIndexOf(BaseEventHandler<E>[] handlers, BaseEventHandler<E> handler, int fromIndex, int toIndex) {
+        for (int i = fromIndex; i < toIndex; i++) {
             if (handlers[i] == handler) {
-                BaseEventHandler<E>[] result = Arrays.copyOf(handlers, handlers.length - 1);
-                System.arraycopy(handlers, i + 1, result, i, handlers.length - i - 1);
-                return result;
+                return i;
             }
         }
-        return handlers;
+        return -1;
     }
 
     @FunctionalInterface
