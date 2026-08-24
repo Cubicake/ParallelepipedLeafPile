@@ -45,7 +45,7 @@ public final class CubiKey {
         return namespace.getCanonicalName() + ":" + key;
     }
 
-    static CubiKey from(Class<?> namespace, String key) {
+    public static CubiKey from(Class<?> namespace, String key) {
         if (IS_BUKKIT_SERVER) return new CubiKey(tryGetProvidingPluginMainClass(namespace), key);
         return new CubiKey(namespace, key);
     }
