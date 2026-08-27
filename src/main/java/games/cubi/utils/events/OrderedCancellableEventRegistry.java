@@ -49,27 +49,19 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
 
     // Source data from which the normal-handler dispatch order is rebuilt after every keyed mutation.
     private final Map<CubiKey, RegistrationNode<E>> normalRegistrations = new HashMap<>(0, 1);
-    // Monitors need no graph node, but their keys are retained for duplicate checks and keyed removal.
-    private final HashMap<CubiKey, BaseEventHandler<E>> monitorRegistrations = new HashMap<>(0, 1);
     // Non-negative sequences provide a stable registration-order tie-breaker for unconstrained nodes.
     private int nextEndSequence = 1;
     // Negative sequences place registerFirst handlers ahead of ordinary nodes unless a constraint overrides it.
     private int nextFirstSequence = -1;
 
-    // Unkeyed normal mutations would bypass the graph metadata and be lost on the next rebuild.
     @Override
-    public void registerUnconditional(BaseEventHandler<E> handler) {
-        throw unsupportedUnkeyedHandlerOperation();
+    public void registerUnconditional(CubiKey key, BaseEventHandler<E> handler) {
+        registerUnconditionalLast(key, handler);
     }
 
     @Override
-    public void registerConditional(CancellableEventHandler<E> handler) {
-        throw unsupportedUnkeyedHandlerOperation();
-    }
-
-    @Override
-    public void unregister(BaseEventHandler<E> handler) {
-        throw unsupportedUnkeyedHandlerOperation();
+    public void registerConditional(CubiKey key, CancellableEventHandler<E> handler) {
+        registerLast(key, handler);
     }
 
     /**
@@ -131,15 +123,14 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
     public synchronized void registerMonitor(CubiKey key, BaseEventHandler<E> handler) {
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(handler, "handler");
-        ensureMonitorKeyAvailable(key);
 
-        super.registerUnconditionalMonitor(handler);
-        monitorRegistrations.put(key, handler);
+        super.registerUnconditionalMonitor(key, handler);
     }
 
     /**
      * Removes all handlers assigned this key.
      */
+    @Override
     public synchronized void unregister(CubiKey key) {
         Objects.requireNonNull(key, "key");
 
@@ -154,10 +145,7 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
             replaceHandlers(candidateHandlers);
         }
 
-        BaseEventHandler<E> monitor = monitorRegistrations.remove(key);
-        if (monitor != null) {
-            super.unregisterMonitor(monitor);
-        }
+        super.unregisterMonitor(key);
     }
 
     /**
@@ -203,12 +191,6 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
 
     private void ensureNormalKeyAvailable(CubiKey key) {
         if (normalRegistrations.containsKey(key)) {
-            throw new IllegalStateException("Handler key is already registered: " + key);
-        }
-    }
-
-    private void ensureMonitorKeyAvailable(CubiKey key) {
-        if (monitorRegistrations.containsKey(key)) {
             throw new IllegalStateException("Handler key is already registered: " + key);
         }
     }
@@ -295,10 +277,6 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
     @SuppressWarnings("unchecked")
     private static <E extends CancellableEvent> BaseEventHandler<E>[] newHandlerArray(int length) {
         return (BaseEventHandler<E>[]) new BaseEventHandler<?>[length];
-    }
-
-    private static UnsupportedOperationException unsupportedUnkeyedHandlerOperation() {
-        return new UnsupportedOperationException("Ordered event handlers require keyed registration and unregistration");
     }
 
     private synchronized int allocateSequence() {
