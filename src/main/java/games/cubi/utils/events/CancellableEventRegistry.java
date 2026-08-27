@@ -12,6 +12,8 @@ import ca.spottedleaf.concurrentutil.util.ConcurrentUtil;
 
 import java.lang.invoke.VarHandle;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Supplier;
 
 /**
@@ -19,10 +21,12 @@ import java.util.function.Supplier;
  * and prevent all future event handlers from receiving that specific event object. This is a deliberate
  * fast-fail design decision.
  */
-public class CancellableEventRegistry<E extends CancellableEvent> {
+public sealed class CancellableEventRegistry<E extends CancellableEvent> permits OrderedCancellableEventRegistry {
 
     private volatile BaseEventHandler<E>[] handlersStore = null; private static final VarHandle HANDLERS_STORE = ConcurrentUtil.getVarHandle(CancellableEventRegistry.class, "handlersStore", BaseEventHandler[].class);
     private volatile BaseEventHandler<E>[] monitorsStore = null; private static final VarHandle MONITORS_STORE = ConcurrentUtil.getVarHandle(CancellableEventRegistry.class, "monitorsStore", BaseEventHandler[].class);
+
+    private final Map<CubiKey, BaseEventHandler<E>> keyReference = new HashMap<>(0, 1);
 
     /**
      * For use when allocating an event can be avoided
@@ -98,24 +102,34 @@ public class CancellableEventRegistry<E extends CancellableEvent> {
         store.setRelease(this, updated);
     }
 
-    public void registerUnconditional(BaseEventHandler<E> handler) {
+    public void registerUnconditional(CubiKey key, BaseEventHandler<E> handler) {
+        storeKeyTo(Target.HANDLER, key, handler);
         registerToStore(HANDLERS_STORE, handler);
     }
 
-    public void registerConditional(CancellableEventHandler<E> handler) {
+    public void registerConditional(CubiKey key, CancellableEventHandler<E> handler) {
+        storeKeyTo(Target.HANDLER, key, handler);
         registerToStore(HANDLERS_STORE, handler);
     }
 
-    public void registerUnconditionalMonitor(BaseEventHandler<E> handler) {
+    public void registerUnconditionalMonitor(CubiKey key, BaseEventHandler<E> handler) {
+        storeKeyTo(Target.MONITOR, key, handler);
         registerToStore(MONITORS_STORE, handler);
     }
 
-    public void registerConditionalMonitor(CancellableEventHandler<E> handler) {
+    public void registerConditionalMonitor(CubiKey key, CancellableEventHandler<E> handler) {
+        storeKeyTo(Target.MONITOR, key, handler);
         registerToStore(MONITORS_STORE, handler);
+    }
+
+    enum Target {MONITOR, HANDLER}
+
+    private void storeKeyTo(Target target, CubiKey key, BaseEventHandler<E> handler) {
+        keyReference.put(key, handler);
     }
 
     @SuppressWarnings("unchecked")
-    private synchronized void unregisterFromStore(VarHandle store, BaseEventHandler<E> handler) {
+    private void unregisterFromStore(VarHandle store, BaseEventHandler<E> handler) {
         BaseEventHandler<E>[] handlers = (BaseEventHandler<E>[]) store.get(this); //ordered by the synchronisation, plain reads fine
         if (handlers == null) return;
 
@@ -128,11 +142,13 @@ public class CancellableEventRegistry<E extends CancellableEvent> {
         store.setRelease(this, updatedHandlers);
     }
 
-    public void unregister(BaseEventHandler<E> handler) {
+    public synchronized void unregister(CubiKey key) {
+        BaseEventHandler<E> handler = keyReference.remove(key);
         unregisterFromStore(HANDLERS_STORE, handler);
     }
 
-    public void unregisterMonitor(BaseEventHandler<E> monitor) {
+    public synchronized void unregisterMonitor(CubiKey key) {
+        BaseEventHandler<E> monitor = keyReference.remove(key);
         unregisterFromStore(MONITORS_STORE, monitor);
     }
 
