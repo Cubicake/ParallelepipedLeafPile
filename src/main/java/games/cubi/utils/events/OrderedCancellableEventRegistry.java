@@ -21,18 +21,24 @@ import java.util.Objects;
 import java.util.PriorityQueue;
 import java.util.Set;
 
+/* */
+
 /**
- * Adds dependency-based ordering to {@link CancellableEventRegistry}.
- *
- * <p>The base class remains responsible for storing and dispatching handler snapshots. This class
- * keeps keyed registration metadata, models active {@code before}/{@code after} relationships as a
- * directed graph, topologically sorts that graph, and publishes the resulting normal-handler array
- * to the base registry. Monitors are unordered, so their storage and dispatch are delegated directly
- * to the base class.</p>
- *
- * <p>Registration changes are prepared against copied metadata and sorted before the live metadata
- * or base handler snapshot is changed. A duplicate key or ordering cycle therefore leaves the
- * currently dispatchable handlers untouched.</p>
+ * Adds dependency-based event handler ordering to {@link CancellableEventRegistry} via {@link RegistrationBuilder}.
+ * Monitor registration and execution is unchanged. Dependencies are stored even if not yet registered, so
+ * registering a handler {@code A} before {@code B} works even if {@code B} is added to the registry after {@code A}.
+ * <p>
+ * If there are no required ordering constraints, {@code registerFirst} and {@code registerLast} can be used
+ * to insert handlers at the start or end of the list. If ordering constraints are placed on these handlers, they
+ * may move to elsewhere in the handler call list. Barring constraints, handlers are sorted based on insertion order.
+ * For handlers {@code A} and {@code B} with {@code A} added before {@code B}, if both are added using registerLast
+ * {@code B} will run last. If both are added using registerFirst {@code B} will run first.
+ * <p>
+ * This class is responsible for adding sorting and sorted registration methods.
+ * The base class remains responsible for storing and dispatching handler snapshots. This class
+ * keeps keyed registration metadata, models active {@code before}/{@code after} relationships as a directed graph,
+ * topologically sorts that graph, and publishes the resulting normal-handler array to the base registry.
+ * Monitors are unordered, so their storage and dispatch are delegated directly to the base class.
  */
 public final class OrderedCancellableEventRegistry<E extends CancellableEvent> extends CancellableEventRegistry<E> {
 
@@ -41,8 +47,8 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
     }
 
     /**
-     * The persistent description of one normal registration. Constraints are retained even when
-     * their referenced keys are absent, allowing them to become active if those keys are added later.
+     * The persistent description of one event handler (not including monitors). Constraints are retained even
+     * when their referenced keys are absent, allowing them to become active if those keys are added later.
      */
     private record RegistrationNode<E extends CancellableEvent>(
             CubiKey key,
@@ -52,13 +58,14 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
             int sequence
     ) {}
 
-    // Source data from which the normal-handler dispatch order is rebuilt after every keyed mutation.
-    private final Map<CubiKey, RegistrationNode<E>> normalRegistrations = new HashMap<>(0, 1);
-    // Non-negative sequences provide a stable registration-order tie-breaker for unconstrained nodes.
+    // Source data from which the handler dispatch order is rebuilt after every keyed mutation.
+    private final Map<CubiKey, RegistrationNode<E>> handlerRegistrations = new HashMap<>(0, 1);
+    // Sequences are used as stable registration-order based tie-breakers for otherwise-unconstrained nodes.
     private int nextEndSequence = 1;
     // Negative sequences place registerFirst handlers ahead of ordinary nodes unless a constraint overrides it.
     private int nextFirstSequence = -1;
 
+    // Unspecified ordering is registered to the end of the list to match CancellableEventRegistry
     @Override
     public void registerUnconditional(CubiKey key, BaseEventHandler<E> handler) {
         registerUnconditionalLast(key, handler);
@@ -72,6 +79,9 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
     /**
      * Creates a staged conditional registration. It is not visible to dispatch until
      * {@link RegistrationBuilder#register()} completes successfully.
+     * <p>
+     * This handler will be skipped if the event is cancelled before it is reached.
+     * If that is not desirable, use {@link #addUnconditionalHandler}
      */
     public RegistrationBuilder addHandler(CubiKey key, CancellableEventHandler<E> handler) {
         return addUnconditionalHandler(key, handler);
@@ -79,6 +89,7 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
 
     /**
      * Creates a staged registration which runs even when the event is already cancelled.
+     * It is not visible to dispatch until {@link RegistrationBuilder#register()} completes successfully.
      */
     public RegistrationBuilder addUnconditionalHandler(CubiKey key, BaseEventHandler<E> handler) {
         return new RegistrationBuilder(
@@ -89,6 +100,7 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
 
     /**
      * Registers a conditional handler at the front of the current handler list.
+     * <p>
      * Explicit ordering constraints can still place another handler before it.
      * Future calls to registerFirst/registerUnconditionalFirst will place their handlers before this one.
      */
@@ -98,6 +110,7 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
 
     /**
      * Registers an unconditional handler at the front of the current handler list.
+     * <p>
      * Explicit ordering constraints can still place another handler before it.
      * Future calls to registerFirst/registerUnconditionalFirst will place their handlers before this one.
      */
@@ -107,7 +120,9 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
 
     /**
      * Registers a conditional handler at the current end of the unconstrained sequence order.
+     * <p>
      * Explicit ordering constraints can still place another handler after it.
+     * Future calls to registerLast/registerUnconditionalLast will place their handlers before this one.
      */
     public synchronized void registerLast(CubiKey key, CancellableEventHandler<E> handler) {
         registerDirect(key, handler, allocateSequence());
@@ -115,15 +130,16 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
 
     /**
      * Registers an unconditional handler at the current end of the unconstrained sequence order.
+     * <p>
      * Explicit ordering constraints can still place another handler after it.
-     */
+     * Future calls to registerLast/registerUnconditionalLast will place their handlers before this one.     */
     public synchronized void registerUnconditionalLast(CubiKey key, BaseEventHandler<E> handler) {
         registerDirect(key, handler, allocateSequence());
     }
 
     /**
      * Registers an unordered monitor which always runs after all normal handlers.
-     * Cancellation changes made by a monitor are discarded, including when it throws.
+     * Cancellation changes made by a monitor are always discarded.
      */
     public synchronized void registerMonitor(CubiKey key, BaseEventHandler<E> handler) {
         Objects.requireNonNull(key, "key");
@@ -139,24 +155,20 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
     public synchronized void unregister(CubiKey key) {
         Objects.requireNonNull(key, "key");
 
-        if (normalRegistrations.containsKey(key)) {
-            Map<CubiKey, RegistrationNode<E>> candidateNormals = new HashMap<>(normalRegistrations);
+        if (handlerRegistrations.containsKey(key)) {
+            Map<CubiKey, RegistrationNode<E>> candidateNormals = new HashMap<>(handlerRegistrations);
             candidateNormals.remove(key);
             //Removing a normal handler rebuilds the graph because its removal may change
             //the dependency state and sequence order of the remaining registrations.
             BaseEventHandler<E>[] candidateHandlers = buildHandlers(candidateNormals);
 
-            normalRegistrations.remove(key);
+            handlerRegistrations.remove(key);
             replaceHandlers(candidateHandlers);
         }
 
         super.unregisterMonitor(key);
     }
 
-    /**
-     * Commits a staged builder transactionally: first validate and sort a candidate metadata map,
-     * then update the live map and publish the already-validated handler order.
-     */
     private synchronized void register(RegistrationBuilder builder) {
         if (builder.registered) {
             throw new IllegalStateException("Handler registration has already completed: " + builder.key);
@@ -170,11 +182,11 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
                 Set.copyOf(builder.after),
                 allocateSequence()
         );
-        Map<CubiKey, RegistrationNode<E>> candidateNormals = new HashMap<>(normalRegistrations);
+        Map<CubiKey, RegistrationNode<E>> candidateNormals = new HashMap<>(handlerRegistrations);
         candidateNormals.put(node.key, node);
         BaseEventHandler<E>[] candidateHandlers = buildHandlers(candidateNormals);
 
-        normalRegistrations.put(node.key, node);
+        handlerRegistrations.put(node.key, node);
         builder.registered = true;
         replaceHandlers(candidateHandlers);
     }
@@ -186,16 +198,16 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
         ensureNormalKeyAvailable(key);
 
         RegistrationNode<E> node = new RegistrationNode<>(key, handler, Set.of(), Set.of(), sequence);
-        Map<CubiKey, RegistrationNode<E>> candidateNormals = new HashMap<>(normalRegistrations);
+        Map<CubiKey, RegistrationNode<E>> candidateNormals = new HashMap<>(handlerRegistrations);
         candidateNormals.put(key, node);
         BaseEventHandler<E>[] candidateHandlers = buildHandlers(candidateNormals);
 
-        normalRegistrations.put(key, node);
+        handlerRegistrations.put(key, node);
         replaceHandlers(candidateHandlers);
     }
 
     private void ensureNormalKeyAvailable(CubiKey key) {
-        if (normalRegistrations.containsKey(key)) {
+        if (handlerRegistrations.containsKey(key)) {
             throw new IllegalStateException("Handler key is already registered: " + key);
         }
     }
@@ -204,27 +216,27 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
      * Performs a stable Kahn topological sort. Edges whose other endpoint is not currently registered
      * are ignored for this rebuild but remain stored in their registration node for future rebuilds.
      */
-    private BaseEventHandler<E>[] buildHandlers(Map<CubiKey, RegistrationNode<E>> normal) {
-        if (normal.isEmpty()) {
+    private BaseEventHandler<E>[] buildHandlers(Map<CubiKey, RegistrationNode<E>> registrationNodes) {
+        if (registrationNodes.isEmpty()) {
             return null;
         }
 
         // Build an adjacency list and incoming-edge count for every currently registered key.
-        Object2IntOpenHashMap<CubiKey> incomingEdges = new Object2IntOpenHashMap<>(normal.size());
-        Map<CubiKey, Set<CubiKey>> outgoingEdges = new Object2ObjectOpenHashMap<>(normal.size());
-        for (CubiKey key : normal.keySet()) {
+        Object2IntOpenHashMap<CubiKey> incomingEdges = new Object2IntOpenHashMap<>(registrationNodes.size());
+        Map<CubiKey, Set<CubiKey>> outgoingEdges = new Object2ObjectOpenHashMap<>(registrationNodes.size());
+        for (CubiKey key : registrationNodes.keySet()) {
             incomingEdges.put(key, 0);
             outgoingEdges.put(key, new HashSet<>());
         }
 
-        for (RegistrationNode<E> node : normal.values()) {
+        for (RegistrationNode<E> node : registrationNodes.values()) {
             for (CubiKey before : node.before) {
-                if (normal.containsKey(before)) {
+                if (registrationNodes.containsKey(before)) {
                     addEdge(node.key, before, outgoingEdges, incomingEdges);
                 }
             }
             for (CubiKey after : node.after) {
-                if (normal.containsKey(after)) {
+                if (registrationNodes.containsKey(after)) {
                     addEdge(after, node.key, outgoingEdges, incomingEdges);
                 }
             }
@@ -232,14 +244,14 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
 
         // Sequence order makes the result deterministic whenever multiple nodes are ready at once.
         PriorityQueue<RegistrationNode<E>> ready = new PriorityQueue<>(Comparator.comparingInt(RegistrationNode::sequence));
-        for (RegistrationNode<E> node : normal.values()) {
+        for (RegistrationNode<E> node : registrationNodes.values()) {
             if (incomingEdges.getInt(node.key) == 0) {
                 ready.add(node);
             }
         }
 
         // Repeatedly emit an unconstrained node and release nodes that depended on it.
-        List<BaseEventHandler<E>> sortedNormalHandlers = new ArrayList<>(normal.size());
+        List<BaseEventHandler<E>> sortedNormalHandlers = new ArrayList<>(registrationNodes.size());
         while (!ready.isEmpty()) {
             RegistrationNode<E> node = ready.remove();
             sortedNormalHandlers.add(node.handler);
@@ -247,13 +259,13 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
             for (CubiKey target : outgoingEdges.get(node.key)) {
                 int remainingEdges = incomingEdges.merge(target, -1, Integer::sum);
                 if (remainingEdges == 0) {
-                    ready.add(normal.get(target));
+                    ready.add(registrationNodes.get(target));
                 }
             }
         }
 
         // Any remaining nodes are part of a cycle or downstream from one, so no complete order exists.
-        if (sortedNormalHandlers.size() != normal.size()) {
+        if (sortedNormalHandlers.size() != registrationNodes.size()) {
             List<CubiKey> blockedKeys = incomingEdges.object2IntEntrySet().stream()
                     .filter(entry -> entry.getIntValue() > 0)
                     .map(Map.Entry::getKey)
@@ -262,7 +274,7 @@ public final class OrderedCancellableEventRegistry<E extends CancellableEvent> e
             throw new IllegalStateException("Cyclic event handler ordering prevents registration of: " + blockedKeys);
         }
 
-        BaseEventHandler<E>[] handlers = newHandlerArray(normal.size());
+        BaseEventHandler<E>[] handlers = newHandlerArray(registrationNodes.size());
         int index = 0;
         for (BaseEventHandler<E> handler : sortedNormalHandlers) {
             handlers[index++] = handler;
