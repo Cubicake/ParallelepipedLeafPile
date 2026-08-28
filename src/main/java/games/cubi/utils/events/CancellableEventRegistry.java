@@ -14,6 +14,7 @@ import java.lang.invoke.VarHandle;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Supplier;
 
 /**
@@ -26,7 +27,16 @@ public sealed class CancellableEventRegistry<E extends CancellableEvent> permits
     private volatile BaseEventHandler<E>[] handlersStore = null; private static final VarHandle HANDLERS_STORE = ConcurrentUtil.getVarHandle(CancellableEventRegistry.class, "handlersStore", BaseEventHandler[].class);
     private volatile BaseEventHandler<E>[] monitorsStore = null; private static final VarHandle MONITORS_STORE = ConcurrentUtil.getVarHandle(CancellableEventRegistry.class, "monitorsStore", BaseEventHandler[].class);
 
-    private final Map<CubiKey, BaseEventHandler<E>> keyReference = new HashMap<>(0, 1);
+    private final Map<CubiKey, BaseEventHandler<E>> monitorKeys = new HashMap<>(0, 1);
+    private final Map<CubiKey, BaseEventHandler<E>> handlerKeys;
+
+    protected CancellableEventRegistry(boolean constructHandlerKeyStore) {
+        handlerKeys = constructHandlerKeyStore ? new HashMap<>(0, 1) : null;
+    }
+
+    public CancellableEventRegistry() {
+        this(true);
+    }
 
     /**
      * For use when allocating an event can be avoided
@@ -36,7 +46,7 @@ public sealed class CancellableEventRegistry<E extends CancellableEvent> permits
     public boolean dispatch(Supplier<E> eventSupplier) {
         BaseEventHandler<E>[] handlers = (BaseEventHandler<E>[]) HANDLERS_STORE.getAcquire(this);
         BaseEventHandler<E>[] monitors = (BaseEventHandler<E>[]) MONITORS_STORE.getAcquire(this);
-        if (handlers == null && monitors == null) {
+        if (isEmpty()) {
             return true;
         }
         return dispatchToHandlers(eventSupplier.get(), handlers, monitors);
@@ -49,7 +59,7 @@ public sealed class CancellableEventRegistry<E extends CancellableEvent> permits
     public boolean dispatch(E event) {
         BaseEventHandler<E>[] handlers = (BaseEventHandler<E>[]) HANDLERS_STORE.getAcquire(this);
         BaseEventHandler<E>[] monitors = (BaseEventHandler<E>[]) MONITORS_STORE.getAcquire(this);
-        if ((handlers == null || handlers.length == 0) && (monitors == null || monitors.length == 0)) {
+        if (isEmpty()) {
             return !event.isCancelled(); //in case an event is pre-cancelled for some reason
         }
         return dispatchToHandlers(event, handlers, monitors);
@@ -88,6 +98,7 @@ public sealed class CancellableEventRegistry<E extends CancellableEvent> permits
     }
 
     protected final synchronized void replaceHandlers(BaseEventHandler<E>[] handlers) {
+        if (handlers == null) throw new IllegalArgumentException("Cannot insert null handlers");
         HANDLERS_STORE.setRelease(this, handlers);
     }
 
@@ -102,30 +113,41 @@ public sealed class CancellableEventRegistry<E extends CancellableEvent> permits
         store.setRelease(this, updated);
     }
 
-    public void registerUnconditional(CubiKey key, BaseEventHandler<E> handler) {
+    public synchronized void registerUnconditional(CubiKey key, BaseEventHandler<E> handler) {
+        Objects.requireNonNull(handler, "Handler cannot be null");
+        Objects.requireNonNull(key, "Key cannot be null");
         storeKeyTo(Target.HANDLER, key, handler);
         registerToStore(HANDLERS_STORE, handler);
     }
 
-    public void registerConditional(CubiKey key, CancellableEventHandler<E> handler) {
+    public synchronized void registerConditional(CubiKey key, CancellableEventHandler<E> handler) {
+        Objects.requireNonNull(handler, "Handler cannot be null");
+        Objects.requireNonNull(key, "Key cannot be null");
         storeKeyTo(Target.HANDLER, key, handler);
         registerToStore(HANDLERS_STORE, handler);
     }
 
-    public void registerUnconditionalMonitor(CubiKey key, BaseEventHandler<E> handler) {
+    public synchronized void registerUnconditionalMonitor(CubiKey key, BaseEventHandler<E> handler) {
+        Objects.requireNonNull(handler, "Handler cannot be null");
+        Objects.requireNonNull(key, "Key cannot be null");
         storeKeyTo(Target.MONITOR, key, handler);
         registerToStore(MONITORS_STORE, handler);
     }
 
-    public void registerConditionalMonitor(CubiKey key, CancellableEventHandler<E> handler) {
+    public synchronized void registerConditionalMonitor(CubiKey key, CancellableEventHandler<E> handler) {
+        Objects.requireNonNull(handler, "Handler cannot be null");
+        Objects.requireNonNull(key, "Key cannot be null");
         storeKeyTo(Target.MONITOR, key, handler);
         registerToStore(MONITORS_STORE, handler);
     }
 
     enum Target {MONITOR, HANDLER}
 
-    private void storeKeyTo(Target target, CubiKey key, BaseEventHandler<E> handler) {
-        keyReference.put(key, handler);
+    private synchronized void storeKeyTo(Target target, CubiKey key, BaseEventHandler<E> handler) {
+        Map<CubiKey, BaseEventHandler<E>> keyStore = (target == Target.HANDLER) ? handlerKeys : monitorKeys;
+        if (keyStore.putIfAbsent(key, handler) != null) {
+            throw new IllegalArgumentException("Handler already registered for key " + key);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -143,12 +165,16 @@ public sealed class CancellableEventRegistry<E extends CancellableEvent> permits
     }
 
     public synchronized void unregister(CubiKey key) {
-        BaseEventHandler<E> handler = keyReference.remove(key);
+        Objects.requireNonNull(key, "Cannot unregister null key");
+        BaseEventHandler<E> handler = handlerKeys.remove(key);
+        if (handler == null) return;
         unregisterFromStore(HANDLERS_STORE, handler);
     }
 
     public synchronized void unregisterMonitor(CubiKey key) {
-        BaseEventHandler<E> monitor = keyReference.remove(key);
+        Objects.requireNonNull(key, "Cannot unregister null key");
+        BaseEventHandler<E> monitor = monitorKeys.remove(key);
+        if (monitor == null) return;
         unregisterFromStore(MONITORS_STORE, monitor);
     }
 
