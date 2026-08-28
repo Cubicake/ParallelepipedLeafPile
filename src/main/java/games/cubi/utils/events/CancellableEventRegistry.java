@@ -102,7 +102,7 @@ public sealed class CancellableEventRegistry<E extends CancellableEvent> permits
     }
 
     protected final synchronized void replaceHandlers(BaseEventHandler<E>[] handlers) {
-        if (handlers == null) throw new IllegalArgumentException("Cannot insert null handlers");
+        if (handlers != null && handlers.length == 0) throw new IllegalArgumentException("Cannot insert 0-length handlers");
         HANDLERS_STORE.setRelease(this, handlers);
     }
 
