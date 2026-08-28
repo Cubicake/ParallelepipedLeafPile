@@ -46,7 +46,7 @@ public sealed class CancellableEventRegistry<E extends CancellableEvent> permits
     public boolean dispatch(Supplier<E> eventSupplier) {
         BaseEventHandler<E>[] handlers = (BaseEventHandler<E>[]) HANDLERS_STORE.getAcquire(this);
         BaseEventHandler<E>[] monitors = (BaseEventHandler<E>[]) MONITORS_STORE.getAcquire(this);
-        if (isEmpty()) {
+        if (isEmpty(handlers, monitors)) {
             return true;
         }
         return dispatchToHandlers(eventSupplier.get(), handlers, monitors);
@@ -59,7 +59,7 @@ public sealed class CancellableEventRegistry<E extends CancellableEvent> permits
     public boolean dispatch(E event) {
         BaseEventHandler<E>[] handlers = (BaseEventHandler<E>[]) HANDLERS_STORE.getAcquire(this);
         BaseEventHandler<E>[] monitors = (BaseEventHandler<E>[]) MONITORS_STORE.getAcquire(this);
-        if (isEmpty()) {
+        if (isEmpty(handlers, monitors)) {
             return !event.isCancelled(); //in case an event is pre-cancelled for some reason
         }
         return dispatchToHandlers(event, handlers, monitors);
@@ -94,6 +94,10 @@ public sealed class CancellableEventRegistry<E extends CancellableEvent> permits
     public boolean isEmpty() {
         BaseEventHandler<E>[] handlers = (BaseEventHandler<E>[]) HANDLERS_STORE.getAcquire(this);
         BaseEventHandler<E>[] monitors = (BaseEventHandler<E>[]) MONITORS_STORE.getAcquire(this);
+        return isEmpty(handlers, monitors);
+    }
+
+    public boolean isEmpty(BaseEventHandler<E>[] handlers, BaseEventHandler<E>[] monitors) {
         return (handlers == null && monitors == null);
     }
 
