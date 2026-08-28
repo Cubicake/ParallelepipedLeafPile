@@ -35,6 +35,11 @@ import java.util.Set;
  * currently dispatchable handlers untouched.</p>
  */
 public final class OrderedCancellableEventRegistry<E extends CancellableEvent> extends CancellableEventRegistry<E> {
+
+    public OrderedCancellableEventRegistry() {
+        super(false);
+    }
+
     /**
      * The persistent description of one normal registration. Constraints are retained even when
      * their referenced keys are absent, allowing them to become active if those keys are added later.
