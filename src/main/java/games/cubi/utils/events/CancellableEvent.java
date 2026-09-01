@@ -8,7 +8,7 @@
 
 package games.cubi.utils.events;
 
-public abstract class CancellableEvent {
+public abstract class CancellableEvent extends Event {
     private boolean cancelled = false;
 
     public void cancel() {
@@ -19,6 +19,7 @@ public abstract class CancellableEvent {
         cancelled = value;
     }
 
+    @Override
     public boolean isCancelled() {
         return cancelled;
     }
