@@ -16,6 +16,8 @@ dependencies {
     implementation(libs.com.github.luben.zstd.jni)
     implementation(libs.org.yaml.snakeyaml)
 
+    implementation("org.jetbrains:annotations:24.0.1")
+
     testImplementation(libs.org.junit.jupiter.junit.jupiter)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

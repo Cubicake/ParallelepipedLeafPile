@@ -9,6 +9,7 @@
 package games.cubi.utils.lists;
 
 import games.cubi.utils.VarHandler;
+import org.jetbrains.annotations.NotNull;
 
 import java.lang.invoke.VarHandle;
 import java.util.Iterator;
@@ -268,7 +269,7 @@ public abstract class InvasivelyLinkedSWMRList<T extends InvasivelyLinkedSWMRLis
      * {@link java.util.ConcurrentModificationException}.</p>
      */
     @Override
-    public final Iterator<T> iterator() {
+    public final @NotNull Iterator<T> iterator() {
         return new Iterator<>() {
             private T next = self();
 
