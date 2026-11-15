@@ -7,6 +7,9 @@ import java.util.Arrays;
 /**
  * Timers have a resolution of 16ns or the JVM's timing resolution, whatever is greater.
  * Timers can time for a maximum of approximately one minute before overflowing.
+ * <p>
+ *     If a full loop of the buffers has not yet been completed, timings may report as zero
+ * </p>
  */
 public interface TimingProbe {
     void registerTimer(SingleThreadedTimer timer);

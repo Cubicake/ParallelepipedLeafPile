@@ -30,15 +30,14 @@ public class MultithreadedProbe implements TimingProbe {
         values.clear();
         singleTimers.forEach((timer) -> {
             for (int i = 0; i < timer.array.length ; i++) {
-                if (i == timer.position) continue;
                 values.add(timer.array[i]);
             }
         });
 
         doubleTimers.forEach((timer) -> {
             for (int i = 0; i < timer.arrayOne.length ; i++) {
-                if (i != timer.positionOne) values.add(timer.arrayOne[i]);
-                if (i != timer.positionTwo) values.add(timer.arrayTwo[i]);
+                values.add(timer.arrayOne[i]);
+                values.add(timer.arrayTwo[i]);
             }
         });
 

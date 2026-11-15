@@ -4,6 +4,7 @@ public sealed class SingleThreadedDoubleTimer {
     int[] arrayOne;
     int[] arrayTwo;
     short positionOne, positionTwo;
+    int scratchOne, scratchTwo;
 
     SingleThreadedDoubleTimer(short ringSize) {
         if (ringSize <= 0)
@@ -14,23 +15,21 @@ public sealed class SingleThreadedDoubleTimer {
     }
 
     public void startOne() {
-        arrayOne[positionOne] = (int) (System.nanoTime() >>> 4);
+        scratchOne = (int) (System.nanoTime() >>> 4);
     }
 
     public void stopOne() {
-        int start = arrayOne[positionOne];
-        arrayOne[positionOne] = (int) (System.nanoTime() >>> 4) - start;
+        arrayOne[positionOne] = (int) (System.nanoTime() >>> 4) - scratchOne;
 
         if (++positionOne == arrayOne.length) positionOne = 0;
     }
 
     public void startTwo() {
-        arrayTwo[positionTwo] = (int) (System.nanoTime() >>> 4);
+        scratchTwo = (int) (System.nanoTime() >>> 4);
     }
 
     public void stopTwo() {
-        int start = arrayTwo[positionTwo];
-        arrayTwo[positionTwo] = (int) (System.nanoTime() >>> 4) - start;
+        arrayTwo[positionTwo] = (int) (System.nanoTime() >>> 4) - scratchTwo;
 
         if (++positionTwo == arrayTwo.length) positionTwo = 0;
     }

@@ -3,6 +3,7 @@ package games.cubi.utils.timings;
 public sealed class SingleThreadedTimer {
     int[] array;
     short position;
+    int scratchOne;
 
     SingleThreadedTimer(short ringSize) {
         if (ringSize <= 0)
@@ -12,12 +13,11 @@ public sealed class SingleThreadedTimer {
     }
 
     public void start() {
-        array[position] = (int) (System.nanoTime() >>> 4);
+        scratchOne = (int) (System.nanoTime() >>> 4);
     }
 
     public void stop() {
-        int start = array[position];
-        array[position] = (int) (System.nanoTime() >>> 4) - start;
+        array[position] = (int) (System.nanoTime() >>> 4) - scratchOne;
 
         if (++position == array.length)
             position = 0;
