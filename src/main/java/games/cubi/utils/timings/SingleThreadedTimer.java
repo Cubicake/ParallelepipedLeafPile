@@ -1,6 +1,6 @@
 package games.cubi.utils.timings;
 
-public class SingleThreadedTimer {
+public sealed class SingleThreadedTimer {
     int[] array;
     short position;
 
@@ -25,5 +25,19 @@ public class SingleThreadedTimer {
 
     long duration(int index) {
         return Integer.toUnsignedLong(array[index]) << 4;
+    }
+
+    public static final class With extends SingleThreadedTimer {
+
+        With(short ringSize) {
+            super(ringSize);
+        }
+
+        public static SingleThreadedTimer.With probe(short ringSize, TimingProbe probe) {
+            With timer = new With(ringSize);
+            probe.registerTimer(timer);
+            return timer;
+        }
+
     }
 }

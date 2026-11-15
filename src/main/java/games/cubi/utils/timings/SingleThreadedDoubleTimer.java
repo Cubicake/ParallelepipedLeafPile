@@ -1,6 +1,6 @@
 package games.cubi.utils.timings;
 
-public class SingleThreadedDoubleTimer {
+public sealed class SingleThreadedDoubleTimer {
     int[] arrayOne;
     int[] arrayTwo;
     short positionOne, positionTwo;
@@ -33,6 +33,20 @@ public class SingleThreadedDoubleTimer {
         arrayTwo[positionTwo] = (int) (System.nanoTime() >>> 4) - start;
 
         if (++positionTwo == arrayTwo.length) positionTwo = 0;
+    }
+
+    public static final class With extends SingleThreadedDoubleTimer {
+
+        With(short ringSize) {
+            super(ringSize);
+        }
+
+        public static SingleThreadedDoubleTimer.With probe(short ringSize, TimingProbe probe) {
+            With timer = new With(ringSize);
+            probe.registerTimer(timer);
+            return timer;
+        }
+
     }
 
 }
