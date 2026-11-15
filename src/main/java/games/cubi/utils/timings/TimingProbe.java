@@ -4,6 +4,10 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 
 import java.util.Arrays;
 
+/**
+ * Timers have a resolution of 16ns or the JVM's timing resolution, whatever is greater.
+ * Timers can time for a maximum of approximately one minute before overflowing.
+ */
 public interface TimingProbe {
     void registerTimer(SingleThreadedTimer timer);
     void registerTimer(SingleThreadedDoubleTimer timer);
