@@ -14,33 +14,39 @@ public interface TimingProbe {
 
     Quartiles probeAverage();
 
-    record Quartiles(double q1, double median, double q3) {}
+    /**
+     * Values are in nanoseconds, however the resolution is 16 ns or greater
+     */
+    record Quartiles(long q1, long median, long q3) {}
 
     static Quartiles quartiles(IntArrayList values) {
-        int[] sorted = values.toIntArray();
-        int n = sorted.length;
-        if (n == 0) {
-            throw new IllegalArgumentException("Quartiles require at least one value");
-        }
-        if (n == 1) {
-            return new Quartiles(sorted[0], sorted[0], sorted[0]);
+        int n = values.size();
+        if (n < 4) throw new IllegalArgumentException("Quartiles require at least 4 elements to be calculated");
+        long[] sorted = new long[n];
+
+        for (int i = 0; i < n; i++) {
+            sorted[i] = Integer.toUnsignedLong(values.getInt(i));
         }
 
         Arrays.sort(sorted);
+
         int half = n / 2;
         return new Quartiles(
                 median(sorted, 0, half),
                 median(sorted, 0, n),
-                median(sorted, n - half, n));
+                median(sorted, n - half, n)
+        );
     }
 
     // Median of the nonempty range [from, to).
-    private static double median(int[] sorted, int from, int to) {
+    private static long median(long[] sorted, int from, int to) {
         int length = to - from;
         int mid = from + length / 2;
+
         if (length % 2 == 1) {
-            return sorted[mid];
+            return sorted[mid] << 4;
         }
-        return ((long) sorted[mid - 1] + sorted[mid]) / 2.0;
+
+        return (sorted[mid - 1] + sorted[mid]) << 3; // one less bit shift left means it has been halved compared to the << 4 equivalent, and since (x+y)/2 is the average of x and y this works
     }
 }
