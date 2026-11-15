@@ -13,22 +13,22 @@ public sealed class SingleThreadedDoubleTimer {
         arrayTwo = new int[ringSize];
     }
 
-    private void startOne() {
+    public void startOne() {
         arrayOne[positionOne] = (int) (System.nanoTime() >>> 4);
     }
 
-    private void stopOne() {
+    public void stopOne() {
         int start = arrayOne[positionOne];
         arrayOne[positionOne] = (int) (System.nanoTime() >>> 4) - start;
 
         if (++positionOne == arrayOne.length) positionOne = 0;
     }
 
-    private void startTwo() {
+    public void startTwo() {
         arrayTwo[positionTwo] = (int) (System.nanoTime() >>> 4);
     }
 
-    private void stopTwo() {
+    public void stopTwo() {
         int start = arrayTwo[positionTwo];
         arrayTwo[positionTwo] = (int) (System.nanoTime() >>> 4) - start;
 

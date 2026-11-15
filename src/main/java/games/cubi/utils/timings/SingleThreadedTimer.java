@@ -11,11 +11,11 @@ public sealed class SingleThreadedTimer {
         array = new int[ringSize];
     }
 
-    private void start() {
+    public void start() {
         array[position] = (int) (System.nanoTime() >>> 4);
     }
 
-    private void stop() {
+    public void stop() {
         int start = array[position];
         array[position] = (int) (System.nanoTime() >>> 4) - start;
 
