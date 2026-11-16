@@ -27,7 +27,6 @@ public class MultithreadedProbe implements TimingProbe {
     // Best-effort probe, while a current timestamp can be misread as a duration if the array and position variables tear
     // that should be ignored due to being outside the quartile bands.
     public Quartiles probeAverage() {
-        values.clear();
         singleTimers.forEach((timer) -> {
             for (int i = 0; i < timer.array.length ; i++) {
                 values.add(timer.array[i]);
@@ -41,6 +40,7 @@ public class MultithreadedProbe implements TimingProbe {
             }
         });
 
+        values.clear();
         return TimingProbe.quartiles(values);
     }
 }
