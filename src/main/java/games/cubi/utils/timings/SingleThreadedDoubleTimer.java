@@ -34,18 +34,10 @@ public sealed class SingleThreadedDoubleTimer {
         if (++positionTwo == arrayTwo.length) positionTwo = 0;
     }
 
-    public static final class With extends SingleThreadedDoubleTimer {
-
-        With(short ringSize) {
-            super(ringSize);
-        }
-
-        public static SingleThreadedDoubleTimer.With probe(short ringSize, TimingProbe probe) {
-            With timer = new With(ringSize);
-            probe.registerTimer(timer);
-            return timer;
-        }
-
+    public static SingleThreadedDoubleTimer with(TimingProbe probe, short ringSize) {
+        SingleThreadedDoubleTimer timer = new SingleThreadedDoubleTimer(ringSize);
+        probe.registerTimer(timer);
+        return timer;
     }
 
 }
