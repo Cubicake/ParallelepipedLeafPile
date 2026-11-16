@@ -1,6 +1,6 @@
 package games.cubi.utils.timings;
 
-public sealed class SingleThreadedDoubleTimer {
+public final class SingleThreadedDoubleTimer {
     int[] arrayOne;
     int[] arrayTwo;
     short positionOne, positionTwo;
