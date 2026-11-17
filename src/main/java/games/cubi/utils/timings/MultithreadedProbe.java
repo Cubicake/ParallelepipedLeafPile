@@ -11,7 +11,8 @@ public class MultithreadedProbe implements TimingProbe {
     private final CopyOnWriteArrayList<SingleThreadedTimer> singleTimers = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<SingleThreadedDoubleTimer> doubleTimers = new CopyOnWriteArrayList<>();
 
-    private final IntArrayList values = new IntArrayList();
+    private final IntArrayList firstValues = new IntArrayList();
+    private final IntArrayList secondValues = new IntArrayList();
 
     @Override
     public void registerTimer(SingleThreadedTimer timer) {
@@ -26,22 +27,23 @@ public class MultithreadedProbe implements TimingProbe {
     @Override
     // Best-effort probe, while a current timestamp can be misread as a duration if the array and position variables tear
     // that should be ignored due to being outside the quartile bands.
-    public Quartiles probeAverage() {
-        values.clear();
+    public DoubleQuartile probeAverage() {
+        firstValues.clear();
+        secondValues.clear();
 
         singleTimers.forEach((timer) -> {
             for (int i = 0; i < timer.array.length ; i++) {
-                values.add(timer.array[i]);
+                firstValues.add(timer.array[i]);
             }
         });
 
         doubleTimers.forEach((timer) -> {
             for (int i = 0; i < timer.arrayOne.length ; i++) {
-                values.add(timer.arrayOne[i]);
-                values.add(timer.arrayTwo[i]);
+                firstValues.add(timer.arrayOne[i]);
+                secondValues.add(timer.arrayTwo[i]);
             }
         });
 
-        return TimingProbe.quartiles(values);
+        return new TimingProbe.DoubleQuartile(TimingProbe.quartiles(firstValues), TimingProbe.quartiles(secondValues));
     }
 }

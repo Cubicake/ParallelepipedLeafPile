@@ -1,7 +1,11 @@
 package games.cubi.utils.timings;
 
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import org.jetbrains.annotations.NotNull;
 
+import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
 import java.util.Arrays;
 
 /**
@@ -15,12 +19,35 @@ public interface TimingProbe {
     void registerTimer(SingleThreadedTimer timer);
     void registerTimer(SingleThreadedDoubleTimer timer);
 
-    Quartiles probeAverage();
+    DoubleQuartile probeAverage();
 
     /**
      * Values are in nanoseconds, however the resolution is 16 ns or greater
      */
-    record Quartiles(long q1, long median, long q3) {}
+    record Quartiles(long q1, long median, long q3) {
+        private static final MathContext DISPLAY_PRECISION =
+                new MathContext(5, RoundingMode.HALF_UP);
+
+        private static String formatMillis(long nanos) {
+            return BigDecimal.valueOf(nanos, 6)
+                    .round(DISPLAY_PRECISION)
+                    .stripTrailingZeros()
+                    .toPlainString() + " ms";
+        }
+
+        @Override
+        public @NotNull String toString() {
+            return "q1: " + formatMillis(q1)
+                    + " median: " + formatMillis(median)
+                    + " q3: " + formatMillis(q3);
+        }
+    }
+    record DoubleQuartile(Quartiles one, Quartiles two) {
+        @Override
+        public @NotNull String toString() {
+            return "First timer quartiles: " + one.toString() + ", Second timer quartiles: " + two.toString();
+        }
+    }
 
     static Quartiles quartiles(IntArrayList values) {
         int n = values.size();
